@@ -1165,55 +1165,6 @@ func (s *Service) ReimportForPostie(ctx context.Context, originalItemID int64, n
 
 	return nil
 }
-	go func() {
-		s.log.DebugContext(ctx, "Starting background processing of queue item", "item_id", itemID, "background", true)
-
-		// Get the queue item
-		item, err := s.database.Repository.GetQueueItem(ctx, itemID)
-		if err != nil {
-			s.log.ErrorContext(ctx, "Failed to get queue item for background processing", "item_id", itemID, "error", err)
-			return
-		}
-
-		if item == nil {
-			s.log.WarnContext(ctx, "Queue item not found for background processing", "item_id", itemID)
-			return
-		}
-
-		// Update status to processing
-		if err := s.database.Repository.UpdateQueueItemStatus(ctx, itemID, database.QueueStatusProcessing, nil); err != nil {
-			s.log.ErrorContext(ctx, "Failed to update item status to processing", "item_id", itemID, "error", err)
-			return
-		}
-
-		// Create cancellable context for this item
-		itemCtx, cancel := context.WithCancel(ctx)
-
-		// Register cancel function
-		s.cancelMu.Lock()
-		s.cancelFuncs[item.ID] = cancel
-		s.cancelMu.Unlock()
-
-		// Clean up after processing
-		defer func() {
-			s.cancelMu.Lock()
-			delete(s.cancelFuncs, item.ID)
-			s.cancelMu.Unlock()
-		}()
-
-		// Process the NZB file using cancellable context
-		resultingPath, processingErr := s.processNzbItem(itemCtx, item)
-
-		// Update queue database with results
-		if processingErr != nil {
-			// Handle failure
-			s.handleProcessingFailure(ctx, item, processingErr)
-		} else {
-			// Handle success (storage path, VFS notification, symlinks, status update)
-			s.handleProcessingSuccess(ctx, item, resultingPath)
-		}
-	}()
-}
 
 // CalculateFileSizeOnly calculates the total file size from NZB/STRM segments
 // This is a lightweight parser that only extracts size information without full processing
