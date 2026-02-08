@@ -391,7 +391,8 @@ export function SABnzbdConfigSection({
 										placeholder="Leave empty to use main watch directory"
 										onChange={(e) => updateFormData({
 											postie: {
-												...formData.postie,
+												enabled: formData.postie.enabled ?? false,
+												timeout_minutes: formData.postie.timeout_minutes ?? 120,
 												watch_dir: e.target.value || undefined,
 											},
 										})}
@@ -412,7 +413,8 @@ export function SABnzbdConfigSection({
 										readOnly={isReadOnly}
 										onChange={(e) => updateFormData({
 											postie: {
-												...formData.postie,
+												enabled: formData.postie.enabled ?? false,
+												watch_dir: formData.postie.watch_dir,
 												timeout_minutes: parseInt(e.target.value, 10) || 120,
 											},
 										})}
