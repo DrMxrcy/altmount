@@ -107,21 +107,56 @@ sabnzbd:
 
 ## Setup Guide
 
+### SaltBox Setup
+
+If you're using [SaltBox](https://github.com/saltyorg/SaltBox), your paths will differ from the standard Docker Compose setup. SaltBox uses a specific directory structure under `/opt/` and `/mnt/local/`.
+
+**SaltBox Directory Structure:**
+
+```
+/opt/
+├── altmount/              # AltMount configuration and data
+├── postie/                # Postie configuration
+└── scripts/               # SaltBox management scripts
+
+/mnt/local/
+└── downloads/
+    └── nzbs/
+        └── sabnzbd/
+            ├── complete/  # SABnzbd completed downloads (Postie watches this)
+            └── incomplete/ # SABnzbd incomplete downloads
+```
+
+**SaltBox-Specific Configuration:**
+
+1. **AltMount** is installed in `/opt/altmount`
+2. **Postie** configuration goes in `/opt/postie`
+3. **SABnzbd** downloads to `/mnt/local/downloads/nzbs/sabnzbd/complete/`
+4. **Watch directory** for Postie output: `/opt/altmount/watch` (or your preferred location)
+
 ### Understanding the Watch Directories
 
 There are **three key directories** in the Postie integration. Understanding how they work together is important:
 
 | Directory | Purpose | Who Writes | Who Reads | Required? |
 |-----------|---------|------------|------------|-----------|
-| `/downloads/completed` | SABnzbd's download completion folder | SABnzbd | Postie | Yes - SABnzbd output |
-| `/watch` | Where Postie writes NZBs for AltMount | Postie | AltMount watcher | Yes - Postie output |
-| `/import` | AltMount's main watch directory for manual NZBs | User (manual) | AltMount watcher | No - optional |
+| `/mnt/local/downloads/nzbs/sabnzbd/complete/` | SABnzbd's download completion folder (SaltBox) | SABnzbd | Postie | Yes - SABnzbd output |
+| `/opt/altmount/watch` | Where Postie writes NZBs for AltMount | Postie | AltMount watcher | Yes - Postie output |
+| `/opt/altmount/import` | AltMount's main watch directory for manual NZBs | User (manual) | AltMount watcher | No - optional |
+
+**Standard Docker Paths (non-SaltBox):**
+
+| Directory | Purpose | Who Writes | Who Reads |
+|-----------|---------|------------|------------|
+| `/downloads/completed` | SABnzbd's download completion folder | SABnzbd | Postie |
+| `/watch` | Where Postie writes NZBs for AltMount | Postie | AltMount watcher |
+| `/import` | AltMount's main watch directory for manual NZBs | User (manual) | AltMount watcher |
 
 **Important**: You do **not** need to configure multiple watch directories. The system uses:
 
-1. **SABnzbd** downloads to `/downloads/completed` (its internal directory)
-2. **Postie** watches `/downloads/completed` and outputs NZBs to `/watch`
-3. **AltMount** watches `/watch` for Postie-generated NZBs
+1. **SABnzbd** downloads to `/mnt/local/downloads/nzbs/sabnzbd/complete/` (SaltBox) or `/downloads/completed` (standard)
+2. **Postie** watches the completed directory and outputs NZBs to `/opt/altmount/watch`
+3. **AltMount** watches `/opt/altmount/watch` for Postie-generated NZBs
 
 The `/import` directory is separate and only used for manual NZB drops by users.
 
@@ -133,6 +168,35 @@ The `/import` directory is separate and only used for manual NZB drops by users.
    ```
 
 2. **Create Postie configuration** with **partial obfuscation**:
+
+   **SaltBox Configuration** (`/opt/postie/config.yaml`):
+
+   ```yaml
+   # /opt/postie/config.yaml
+   watcher:
+     enabled: true
+     watch_directory: "/mnt/local/downloads/nzbs/sabnzbd/complete/"  # SABnzbd's completed folder (SaltBox)
+     delete_original_file: true  # Delete video files after upload!
+
+   posting:
+     obfuscation_policy: partial  # CRITICAL: Preserve filenames for matching
+     par2_obfuscation_policy: none
+
+     # Configure your upload servers (alternative backbones)
+     servers:
+       - name: "backup-provider"
+         host: "news.example.com"
+         port: 563
+         username: "user"
+         password: "pass"
+         ssl: true
+         connections: 10
+
+   nzb:
+     output_dir: "/opt/altmount/watch"  # Where to write NZBs for AltMount
+   ```
+
+   **Standard Docker Configuration** (`config.yaml`):
 
    ```yaml
    # config.yaml
@@ -165,6 +229,8 @@ The `/import` directory is separate and only used for manual NZB drops by users.
 - This allows AltMount to identify the content while still providing privacy
 
 ### Step 3: Complete Docker Compose Setup
+
+> **Note for SaltBox users**: If you're using SaltBox, skip this section and use the SaltBox paths documented above instead. SaltBox has its own service orchestration and directory structure.
 
 Here's a complete Docker Compose example with all three services and proper volume sharing:
 
@@ -279,6 +345,27 @@ volumes:
 
 **Directory Structure Explained:**
 
+**SaltBox Structure:**
+
+```
+/opt/
+├── altmount/              # AltMount configuration and data
+│   ├── watch/             # Postie → AltMount (Postie writes, AltMount reads)
+│   └── import/            # Manual NZB drops
+├── postie/                # Postie configuration
+│   └── config.yaml
+└── scripts/               # SaltBox management scripts
+
+/mnt/local/
+└── downloads/
+    └── nzbs/
+        └── sabnzbd/
+            ├── complete/  # SABnzbd → Postie (SABnzbd writes, Postie reads)
+            └── incomplete/ # SABnzbd internal
+```
+
+**Standard Docker Structure:**
+
 ```
 your-project/
 ├── docker-compose.yml
@@ -300,7 +387,9 @@ your-project/
 3. Scroll to **Postie Integration** section
 4. Enable Postie integration
 5. Configure:
-   - **Watch Directory**: Leave empty to use `/watch` (recommended)
+   - **Watch Directory**:
+     - SaltBox: `/opt/altmount/watch`
+     - Standard: Leave empty for `/watch` (default)
    - **Timeout Minutes**: How long to wait for Postie upload (default: 120)
 
 ### Step 5: Configure Sonarr/Radarr Download Clients
@@ -356,7 +445,7 @@ AltMount already handles the complete Sonarr/Radarr import flow. When Postie upl
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `POSTIE_ENABLED` | boolean | `false` | Enable Postie integration |
-| `POSTIE_WATCH_DIR` | string | import watch dir | Directory where Postie writes NZBs |
+| `POSTIE_WATCH_DIR` | string | import watch dir | Directory where Postie writes NZBs (e.g., `/opt/altmount/watch` for SaltBox) |
 | `POSTIE_TIMEOUT_MINUTES` | int | `120` | Minutes to wait before marking as failed |
 
 ### UI Configuration
@@ -377,7 +466,9 @@ All Postie settings can be configured through the AltMount web interface:
 
 **Solutions**:
 1. Check if Postie is running: `docker logs postie`
-2. Verify Postie can access SABnzbd's download directory: `docker exec postie ls /downloads/completed`
+2. Verify Postie can access SABnzbd's download directory:
+   - **SaltBox**: `docker exec postie ls /mnt/local/downloads/nzbs/sabnzbd/complete/`
+   - **Standard**: `docker exec postie ls /downloads/completed`
 3. Check Postie server configuration (host, port, credentials)
 4. Increase `timeout_minutes` in UI
 5. Check Postie logs: `docker logs -f postie`
@@ -412,9 +503,11 @@ All Postie settings can be configured through the AltMount web interface:
 
 **Solutions**:
 1. Verify volume mounts in docker-compose.yml
-2. Check Postie's `nzb.output_dir` setting
+2. Check Postie's `nzb.output_dir` setting:
+   - **SaltBox**: Should be `/opt/altmount/watch`
+   - **Standard**: Should be `/watch`
 3. Verify AltMount watcher is running (check logs)
-4. Ensure watch directory paths match exactly
+4. Ensure watch directory paths match exactly between Postie config and AltMount UI
 
 ### Manual retry is needed
 
