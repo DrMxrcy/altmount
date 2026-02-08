@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/javi11/altmount/internal/database"
 	"github.com/javi11/altmount/internal/sabnzbd"

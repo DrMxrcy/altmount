@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -22,9 +23,10 @@ type Matcher struct {
 
 // NewMatcher creates a new Postie matcher
 func NewMatcher(queueRepo *database.QueueRepository, configGetter config.ConfigGetter) *Matcher {
+	cfg := configGetter()
 	return &Matcher{
 		queueRepo: queueRepo,
-		config:    configGetter().Postie,
+		config:    &cfg.Postie,
 		log:       slog.Default().With("component", "postie-matcher"),
 	}
 }
@@ -174,7 +176,7 @@ func (m *Matcher) parseNZBInfo(ctx context.Context, nzbPath string) (string, int
 
 	// Calculate total size (excluding PAR2 files)
 	var totalSize int64
-	par2Pattern := strings.MustCompile(`(?i)\.par2$|\.p\d+$|\.vol\d+\+\d+\.par2$`)
+	par2Pattern := regexp.MustCompile(`(?i)\.par2$|\.p\d+$|\.vol\d+\+\d+\.par2$`)
 
 	for _, file := range nzb.Files {
 		if !par2Pattern.MatchString(file.Filename) {
