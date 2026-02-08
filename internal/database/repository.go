@@ -946,3 +946,61 @@ func (r *Repository) UpdateQueueItemPriority(ctx context.Context, id int64, prio
 	}
 	return nil
 }
+
+// UpdatePostieTracking updates Postie tracking fields for a queue item
+func (r *Repository) UpdatePostieTracking(ctx context.Context, id int64, uploadID, status *string, uploadedAt *time.Time, releaseName *string) error {
+	query := `
+		UPDATE import_queue
+		SET postie_upload_id = ?, postie_upload_status = ?, postie_uploaded_at = ?, original_release_name = ?, updated_at = datetime('now')
+		WHERE id = ?
+	`
+	_, err := r.db.ExecContext(ctx, query, uploadID, status, uploadedAt, releaseName, id)
+	if err != nil {
+		return fmt.Errorf("failed to update postie tracking: %w", err)
+	}
+	return nil
+}
+
+// GetItemsByPostieStatus retrieves queue items with a specific Postie upload status
+func (r *Repository) GetItemsByPostieStatus(ctx context.Context, status string) ([]*ImportQueueItem, error) {
+	query := `
+		SELECT id, nzb_path, relative_path, category, priority, status, created_at, updated_at,
+		       started_at, completed_at, retry_count, max_retries, error_message, batch_id, metadata, file_size, storage_path,
+		       postie_upload_id, postie_upload_status, postie_uploaded_at, original_release_name
+		FROM import_queue
+		WHERE postie_upload_status = ?
+		ORDER BY created_at ASC
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, status)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query items by postie status: %w", err)
+	}
+	defer rows.Close()
+
+	var items []*ImportQueueItem
+	for rows.Next() {
+		var item ImportQueueItem
+		err := rows.Scan(
+			&item.ID, &item.NzbPath, &item.RelativePath, &item.Category, &item.Priority, &item.Status,
+			&item.CreatedAt, &item.UpdatedAt, &item.StartedAt, &item.CompletedAt,
+			&item.RetryCount, &item.MaxRetries, &item.ErrorMessage, &item.BatchID, &item.Metadata, &item.FileSize, &item.StoragePath,
+			&item.PostieUploadID, &item.PostieUploadStatus, &item.PostieUploadedAt, &item.OriginalReleaseName,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan queue item: %w", err)
+		}
+		items = append(items, &item)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating items: %w", err)
+	}
+
+	return items, nil
+}
+
+// GetPendingPostieItems retrieves queue items that have been sent to Postie but not yet completed
+func (r *Repository) GetPendingPostieItems(ctx context.Context) ([]*ImportQueueItem, error) {
+	return r.GetItemsByPostieStatus(ctx, "pending")
+}

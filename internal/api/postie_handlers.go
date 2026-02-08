@@ -4,7 +4,6 @@ import (
 	"strconv"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/javi11/altmount/internal/database"
 )
 
 // handlePostieRetry handles POST /api/queue/:id/postie-retry
