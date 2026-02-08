@@ -151,6 +151,19 @@ func (uf *UsenetFile) Stat() (fs.FileInfo, error) {
 }
 
 func (uf *UsenetFile) Read(p []byte) (n int, err error) {
+	// Panic recovery to handle malformed RAR files gracefully
+	defer func() {
+		if r := recover(); r != nil {
+			slog.ErrorContext(uf.ctx,
+				"rardecode panic recovered in UsenetFile.Read - file may be corrupted",
+				"file_name", uf.name,
+				"position", uf.position,
+				"panic", fmt.Sprintf("%v", r),
+				"recovered", "true")
+			err = fmt.Errorf("RAR parsing panic recovered: %v", r)
+		}
+	}()
+
 	// Yield CPU to prevent starvation of other goroutines (e.g. WebDAV server)
 	// during heavy processing loops by external libraries (like rardecode)
 	runtime.Gosched()
@@ -259,6 +272,19 @@ func (uf *UsenetFile) Seek(offset int64, whence int) (int64, error) {
 // ReadAt reads len(p) bytes into p starting at offset off in the file
 // It returns the number of bytes read and any error encountered
 func (uf *UsenetFile) ReadAt(p []byte, off int64) (n int, err error) {
+	// Panic recovery to handle malformed RAR files gracefully
+	defer func() {
+		if r := recover(); r != nil {
+			slog.ErrorContext(uf.ctx,
+				"rardecode panic recovered in UsenetFile.ReadAt - file may be corrupted",
+				"file_name", uf.name,
+				"offset", off,
+				"panic", fmt.Sprintf("%v", r),
+				"recovered", "true")
+			err = fmt.Errorf("RAR parsing panic recovered: %v", r)
+		}
+	}()
+
 	// Yield CPU to prevent starvation
 	runtime.Gosched()
 

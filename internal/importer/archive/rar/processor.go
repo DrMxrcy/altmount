@@ -77,6 +77,11 @@ func (rh *rarProcessor) AnalyzeRarContentFromNzb(ctx context.Context, rarFiles [
 		return nil, errors.NewNonRetryableError("no pool manager available", nil)
 	}
 
+	// Validate RAR files before processing
+	if err := rh.validateRarFiles(ctx, rarFiles); err != nil {
+		return nil, err
+	}
+
 	// Normalize RAR part filenames (e.g., part010 -> part10) for consistent processing
 	// Check if ALL files have no extension - if so, we'll add .partXX.rar extensions
 	allFilesNoExt := true
@@ -148,7 +153,9 @@ func (rh *rarProcessor) AnalyzeRarContentFromNzb(ctx context.Context, rarFiles [
 	}
 
 	// Create iterator for memory-efficient archive traversal
-	aggregatedFiles, err := rardecode.ListArchiveInfo(mainRarFile, opts...)
+	// Wrap with panic recovery to handle malformed RAR files gracefully
+	aggregatedFiles, err := rh.safeListArchiveInfo(mainRarFile, opts)
+
 	if err != nil {
 		// Check if error indicates incomplete RAR archive with missing volume segments
 		return nil, errors.NewNonRetryableError("failed to create archive iterator", err)
@@ -563,4 +570,50 @@ func slicePartSegments(segments []*metapb.SegmentData, dataOffset int64, length 
 	}
 
 	return out, covered, nil
+}
+
+// validateRarFiles performs pre-validation on RAR files before passing to rardecode
+// This helps catch malformed files early and provide better error messages
+func (rh *rarProcessor) validateRarFiles(ctx context.Context, rarFiles []parser.ParsedFile) error {
+	if len(rarFiles) == 0 {
+		return errors.NewNonRetryableError("no RAR files provided for validation", nil)
+	}
+
+	// Check for suspicious patterns that might indicate corrupted archives
+	for _, file := range rarFiles {
+		// Skip files with obviously suspicious names (potential exploit attempts)
+		if strings.Contains(strings.ToLower(file.Filename), "..") {
+			return errors.NewNonRetryableError(fmt.Sprintf("suspicious file path with directory traversal: %s", file.Filename), nil)
+		}
+
+		// Check if file size is suspiciously large (could indicate corruption or malformed NZB)
+		// Max reasonable RAR part size: 100GB
+		const maxFileSize int64 = 100 * 1024 * 1024 * 1024
+		if file.Size > 0 && file.Size > maxFileSize {
+			return errors.NewNonRetryableError(fmt.Sprintf("RAR file size exceeds maximum allowed size: %s (%d bytes)", file.Filename, file.Size), nil)
+		}
+	}
+
+	return nil
+}
+
+// safeListArchiveInfo wraps rardecode.ListArchiveInfo with panic recovery
+// This prevents the entire application from crashing when encountering malformed RAR files
+func (rh *rarProcessor) safeListArchiveInfo(mainRarFile string, opts []rardecode.Option) ([]rardecode.ArchiveFileInfo, error) {
+	defer func() {
+		if r := recover(); r != nil {
+			rh.log.ErrorContext(context.Background(),
+				"rardecode panic recovered - malformed or corrupted RAR file",
+				"main_file", mainRarFile,
+				"panic", fmt.Sprintf("%v", r),
+				"recovered", "true")
+		}
+	}()
+
+	aggregatedFiles, err := rardecode.ListArchiveInfo(mainRarFile, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return aggregatedFiles, nil
 }
