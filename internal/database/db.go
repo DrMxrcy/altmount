@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	fs "io/fs"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -12,6 +13,16 @@ import (
 
 //go:embed migrations/*.sql
 var embedMigrations embed.FS
+
+// migrationsFS wraps the embedded migrations and provides a sub-filesystem
+// that goose can correctly navigate
+var migrationsFS = func() fs.FS {
+	fsys, err := fs.Sub(embedMigrations, "migrations")
+	if err != nil {
+		panic(err)
+	}
+	return fsys
+}()
 
 // DB wraps the database connection and provides access to operations
 type DB struct {
@@ -85,7 +96,7 @@ func NewDB(config Config) (*DB, error) {
 // runMigrations runs database migrations using Goose
 func runMigrations(db *sql.DB) error {
 	// Set the migration provider for embedded filesystem
-	goose.SetBaseFS(embedMigrations)
+	goose.SetBaseFS(migrationsFS)
 
 	if err := goose.SetDialect("sqlite3"); err != nil {
 		return fmt.Errorf("failed to set goose dialect: %w", err)
