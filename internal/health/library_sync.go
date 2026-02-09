@@ -567,6 +567,27 @@ func (lsw *LibrarySyncWorker) SyncLibrary(ctx context.Context, dryRun bool) *Dry
 		path := mountRelativePath
 
 		p.Go(func() {
+			// Panic recovery to handle malformed RAR files during metadata reading
+			defer func() {
+				if r := recover(); r != nil {
+					slog.ErrorContext(ctx, "Panic recovered during metadata processing - file may be corrupted",
+						"mount_relative_path", path,
+						"panic", fmt.Sprintf("%v", r),
+						"recovered", "true")
+
+					// Look up library path for corrupted file registration
+					libraryPath := lsw.getLibraryPath(path, filesInUse)
+
+					// Register as corrupted so HealthWorker can pick it up
+					if libraryPath != nil {
+						regErr := lsw.healthRepo.RegisterCorruptedFile(ctx, path, libraryPath, fmt.Sprintf("panic: %v", r))
+						if regErr != nil {
+							slog.ErrorContext(ctx, "Failed to register corrupted file after panic", "path", path, "error", regErr)
+						}
+					}
+				}
+			}()
+
 			// Check if needs to be added
 			if it, exists := dbPathSet[path]; !exists || it.LibraryPath == nil {
 				// Look up library path from our map
