@@ -91,7 +91,7 @@ func runMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to set goose dialect: %w", err)
 	}
 
-	if err := goose.Up(db, "migrations"); err != nil {
+	if err := goose.Up(db, "."); err != nil {
 		return fmt.Errorf("failed to run queue migrations: %w", err)
 	}
 
